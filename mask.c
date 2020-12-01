@@ -6,12 +6,10 @@
 #define MAX_NUMBER_LENGTH 4
 #define MAX_MASK_NUMBER 8
 
-Mask* get_next_mask(FILE *masks_file) {
+
+int get_next_mask(FILE *masks_file, Mask *mask) {
 	char temp_string[MAX_NUMBER_LENGTH + 1]; // null at the end of the buffer
 	char temp_char;
-
-	Mask *mask = malloc(sizeof(mask));
-	bool ok = true;
 	int i;
 
 	for (i = 0; i < 4; ++i) {
@@ -24,7 +22,7 @@ Mask* get_next_mask(FILE *masks_file) {
 			offset++;
 		}
 		if (offset == 0) {
-			return 0;
+			return 1;
 		}
 		temp_string[offset] = 0;
 		
@@ -39,22 +37,32 @@ Mask* get_next_mask(FILE *masks_file) {
 	}
 
 	if (i < 4) {
-		return 0;
+		return 1;
 	}
 
-	return mask;
+	return 0;
 }
 
-Mask** get_all_masks(char *masks_file_path, int *masks_number) {
-	Mask **masks = malloc(sizeof(Mask*) * MAX_MASK_NUMBER);
+
+Mask* get_all_masks(char *masks_file_path, int *masks_number) {
+	Mask *masks = malloc(sizeof(Mask) * MAX_MASK_NUMBER);
 	*masks_number = 0;
-	Mask *current_mask;
 	FILE *masks_file = fopen(masks_file_path, "r");
 
-	while ((current_mask = get_next_mask(masks_file)) != 0) {
-		masks[*masks_number] = current_mask;
+	while (get_next_mask(masks_file, &masks[*masks_number]) == 0) {
 		*masks_number = *masks_number + 1;
 	}
+
 	fclose(masks_file);
 	return masks;
+}
+
+
+bool is_pixel_in_masks(int masks_number, Mask* masks, int i, int j) {
+	for (int mask = 0; mask < masks_number; ++mask) {
+		if (masks[mask].start_i <= i && i <= masks[mask].end_i && masks[mask].start_j <= j && j <= masks[mask].end_j) {
+			return true;
+		}
+	}
+	return false;
 }
