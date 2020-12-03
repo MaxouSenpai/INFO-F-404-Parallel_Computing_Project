@@ -9,19 +9,21 @@ BIN_DIR=$(MPI_DIR)/bin
 
 FLAGS = -I$(INC_DIR) -L$(LIB_DIR)
 
-all: blur.c blur.h image.o mask.o
-	gcc -o blur blur.c image.o mask.o $(FLAGS) -lmpi -Wall
+all: blur.c blur.h image.o mask.o options.o
+	gcc -g -o blur blur.c image.o mask.o options.o $(FLAGS) -lmpi -Wall
 
 image.o: image.c image.h
-	gcc -c image.c -Wall
+	gcc -g -c image.c -Wall
 
 mask.o: mask.c mask.h
-	gcc -c mask.c -Wall
+	gcc -g -c mask.c -Wall
+
+options.o: options.c options.h
+	gcc -g -c options.c -Wall
 
 clean:
 	rm *.o
 
 run:
 	export PATH=$(PATH):$(BIN_DIR) && \
-	mpirun -n 4 blur
-
+	mpirun -n 4 blur -i data/police1.raw -m data/mask1 -n 10 -o test.raw -d 1280 720

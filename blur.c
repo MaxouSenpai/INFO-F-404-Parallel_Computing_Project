@@ -5,154 +5,211 @@
 #include "blur.h"
 #include "image.h"
 #include "mask.h"
-
-#define WIDTH 1280
-#define HEIGHT 720
+#include "options.h"
 
 // https://rawpixels.net/
 
-MPI_Datatype mpi_mask_type;
 
-void blur_host(int world_size) {
+/*
+ * This function executes the code of the host.
+ *
+ * world_size - the number of processes
+ * options - the options of the command line
+ */
+void blur_host(int world_size, Options options) {
 	Image image;
-	load_raw_image("data/police1.raw", WIDTH, HEIGHT, &image);
+	load_raw_image(options.image_filename, options.width, options.height, &image);
 
 	int masks_number;
-	Mask* masks = get_all_masks("data/mask1", &masks_number);
-
-	// masks_number = 1; // TODO
-
-	for (int i = 0; i < masks_number; ++i) {
-		printf("Mask %i : %i, %i, %i, %i\n", i, masks[i].start_i, masks[i].start_j, masks[i].end_i, masks[i].end_j);
-	}
-
-	/*for (int i = 0; i < *masks_number; ++i) {
-		printf("%i %i %i %i\n", masks[i]->start_i, masks[i]->start_j, masks[i]->end_i, masks[i]->end_j);
-	}*/
-
-	int *distributed_height = calloc(0, sizeof(int) * (world_size - 1));
-
-	int lines = 0;
-	while (lines < HEIGHT) {
-		for (int j = 0; j < world_size - 1 && lines < HEIGHT; ++j) {
-			distributed_height[j]++;
-			lines++;
-		}
-	}
-
-	for (int i = 0; i < world_size-1; ++i) {
-		printf("Processor : %i\n", distributed_height[i]);
-	}
-
-	// MPI_UNSIGNED_CHAR
-
-	int k = 4;
-
-	MPI_Bcast(&k, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	Mask* masks = get_all_masks(options.masks_filename, &masks_number);
 	
-	MPI_Bcast(&image.width, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	MPI_Bcast(&image.height, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	MPI_Bcast(image.data, image.width * image.height, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
-
-	MPI_Bcast(&masks_number, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	MPI_Bcast(masks, masks_number, mpi_mask_type, 0, MPI_COMM_WORLD);
-
-	/*for (int i = 0; i < masks_number; ++i) {
-		MPI_Bcast(masks[i], 4, MPI_INT, 0, MPI_COMM_WORLD);
-	}*/
-
-	int current = 0;
-	for (int i = 1; i < world_size; ++i) {
-		MPI_Send(&current, 1, MPI_INT, i, 0, MPI_COMM_WORLD); // Start
-		current = current + distributed_height[i-1];
-		MPI_Send(&current, 1, MPI_INT, i, 0, MPI_COMM_WORLD); // End
+	printf("Masks contained in the file %s :\n", options.masks_filename);
+	for (int i = 0; i < masks_number; ++i) {
+		printf("\tMask %i : %i, %i, %i, %i\n", i, masks[i].start_i, masks[i].start_j, masks[i].end_i, masks[i].end_j);
 	}
+
+	int *distributed_height = balance_work(image.height, world_size);
+
+	send_parameters_to_worker(&image, masks_number, masks, options.n, world_size, distributed_height);
+
+	Image cut_image;
+	cut_image.width = image.width;
+	cut_image.height = distributed_height[0];
+	cut_image.data = malloc(sizeof(unsigned char) * cut_image.width * cut_image.height);
+
+	blur(&image, &cut_image, masks_number, masks, options.n, 0, distributed_height[0]);
 
 	unsigned char *out_image = malloc(sizeof(unsigned char) * image.width * image.height);
 
-	int delta_data = 0;
-	for (int i = 1; i < world_size; ++i) {
-		MPI_Recv(out_image + delta_data, image.width * distributed_height[i-1], MPI_UNSIGNED_CHAR, i, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-		delta_data = delta_data + distributed_height[i-1] * image.width;
-	}
+	MPI_Gather(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR, out_image, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
-	FILE *out_file = fopen("test.raw", "wr");
+	FILE *out_file = fopen(options.output_image_filename, "wr");
 	fwrite(out_image, 1, image.width * image.height, out_file);
 	fclose(out_file);
 }
 
-void blur_worker() {
-	int k;
-	MPI_Bcast(&k, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-	Image image;
-
-	MPI_Bcast(&image.width, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	MPI_Bcast(&image.height, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-	image.data = malloc(image.width * image.height * sizeof(unsigned char));
+/*
+ * This function receives the parameters from the host and
+ * stores them in the different specified variables.
+ * All the arguments are passed by their address in order to update them.
+ *
+ * image - the image
+ * masks_number - the number of masks
+ * masks - the masks
+ * n - the n (neighbourhood) value for the blurring algorithm
+ * world_size - the number of processes
+ * distributed_height - @TODO
+ */
+void send_parameters_to_worker(Image *image, int masks_number, Mask* masks, int n, int world_size, int *distributed_height) {
+	MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	
-	MPI_Bcast(image.data, image.width * image.height, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&image->width, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&image->height, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(image->data, image->width * image->height, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
-	int masks_number;
 	MPI_Bcast(&masks_number, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(masks, masks_number, MPI_MASK, 0, MPI_COMM_WORLD);
 
-	Mask *masks = malloc(sizeof(Mask) * masks_number);
-	MPI_Bcast(masks, masks_number, mpi_mask_type, 0, MPI_COMM_WORLD);
+	int current = distributed_height[0];
+	for (int i = 1; i < world_size; ++i) {
+		MPI_Send(&current, 1, MPI_INT, i, 0, MPI_COMM_WORLD); // Start
+		current = current + distributed_height[i];
+		MPI_Send(&current, 1, MPI_INT, i, 0, MPI_COMM_WORLD); // End
+	}
+}
 
+
+/*
+ * This function receives the parameters from the host and
+ * stores them in the different specified variables.
+ * All the arguments are passed by their address in order to update them.
+ *
+ * image - the image
+ * masks_number - the number of masks
+ * masks - the masks
+ * n - the n (neighbourhood) value for the blurring algorithm
+ * start - the row which the cut image starts at
+ * end - the row which the cut image ends at
+ */
+void receive_parameters_from_host(Image *image, int *masks_number, Mask **masks, int *n, int *start, int *end) {
+	MPI_Bcast(n, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&image->width, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&image->height, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+	image->data = malloc(image->width * image->height * sizeof(unsigned char));	
+	MPI_Bcast(image->data, image->width * image->height, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+
+	MPI_Bcast(masks_number, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+	*masks = malloc(sizeof(Mask) * (*masks_number));
+	MPI_Bcast(*masks, *masks_number, MPI_MASK, 0, MPI_COMM_WORLD);
+
+	MPI_Recv(start, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+	MPI_Recv(end, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+}
+
+
+/*
+ * This function executes the code of a worker.
+ */
+void blur_worker() {
+	Image image;
+	int masks_number;
+	Mask *masks;
+	int n;
 	int start, end;
 
-	MPI_Recv(&start, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-	MPI_Recv(&end, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
+	receive_parameters_from_host(&image, &masks_number, &masks, &n, &start, &end);
 
 	Image cut_image;
 	cut_image.width = image.width;
 	cut_image.height = end - start;
 	cut_image.data = malloc(sizeof(unsigned char) * cut_image.width * cut_image.height);
 
-
-	for (int i = start; i < end; ++i) {
-		for (int j = 0; j < image.width; ++j) {
-			unsigned char pixel;
-			if (is_pixel_in_masks(masks_number, masks, i, j)) {
-				pixel = get_blur_pixel(&image, i, j, k);
-			}
-			else {
-				pixel = get_pixel(&image, i, j);
-			}
-
-			set_pixel(&cut_image, i - start, j, pixel);
-		}
-	}
-	MPI_Send(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR, 0, 0, MPI_COMM_WORLD);
+	blur(&image, &cut_image, masks_number, masks, n, start, end);
+	MPI_Gather(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR, NULL, 0, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 }
 
-void blur(int rank, int world_size) {
+
+/*
+ * This function blurs or not, based on the masks,
+ * the pixels of the specified part of the base image and
+ * stores the result in the specified output image.
+ *
+ * base_image - the base image
+ * cut_image - the output cut image
+ * masks_number - the number of masks
+ * masks - the masks
+ * n - the n (neighbourhood) value for the blurring algorithm
+ * start - the row which the cut image starts at
+ * end - the row which the cut image ends at
+ */
+void blur(Image *base_image, Image *cut_image, int masks_number, Mask *masks, int n, int start, int end) {
+	for (int i = start; i < end; ++i) {
+		for (int j = 0; j < base_image->width; ++j) {
+			unsigned char pixel;
+			if (is_pixel_in_masks(masks_number, masks, i, j)) {
+				pixel = get_blur_pixel(base_image, i, j, n);
+			}
+			else {
+				pixel = get_pixel(base_image, i, j);
+			}
+
+			set_pixel(cut_image, i - start, j, pixel);
+		}
+	}
+}
+
+
+/*
+ * This function determines if the process is the host or a worker.
+ * The process with the rank 0 is the host and the others are workers.
+ *
+ * rank - the rank of the current process
+ * world_size - the number of processes
+ * argc - the number of arguments of the command line
+ * argv - the array containing the arguments of the command line
+ */
+void blur_split(int rank, int world_size, int argc, char **argv) {
 	if (rank == 0) {
-		blur_host(world_size);
+		Options options;
+		parse_arguments(argc, argv, &options);
+
+		blur_host(world_size, options);
 	}
 	else {
 		blur_worker();
 	}
 }
 
+
+/*
+ * This function executes the code.
+ *
+ * argc - the number of arguments of the command line
+ * argv - the array containing the arguments of the command line
+ * returns 0 if the code did not detect any error else 1
+ */
 int main(int argc, char **argv) {
 	int rank, world_size;
 	MPI_Init(&argc, &argv);
-	init_type();
+	create_mpi_mask_type();
 	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-	blur(rank, world_size);
+	blur_split(rank, world_size, argc, argv);
 
-	printf("Before Finalize\n");
 	MPI_Finalize();
-	printf("After Finalize\n");
 	return 0;
 }
 
-void init_type() {
+
+/*
+ * This function creates the new type Mask for MPI.
+ *
+ */
+void create_mpi_mask_type() {
 	const int nitems = 4;
 	int block_lenghts[4] = {1,1,1,1};
 	MPI_Datatype types[4] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT};
@@ -161,6 +218,27 @@ void init_type() {
 	offsets[1] = offsetof(Mask, start_j);
 	offsets[2] = offsetof(Mask, end_i);
 	offsets[3] = offsetof(Mask, end_j);
-	MPI_Type_create_struct(nitems, block_lenghts, offsets, types, &mpi_mask_type);
-	MPI_Type_commit(&mpi_mask_type);
+	MPI_Type_create_struct(nitems, block_lenghts, offsets, types, &MPI_MASK);
+	MPI_Type_commit(&MPI_MASK);
+}
+
+
+/*
+ * This function divides equally the work between different workers.
+ *
+ * work - the quantity of work to do
+ * workers_number - the number of workers
+ * returns the array containing for each worker its quantity of work to do
+ */
+int* balance_work(int work, int workers_number) {
+	int *distributed_work = calloc(0, sizeof(int) * workers_number);
+
+	int delta = work / workers_number;
+	int left = work % workers_number;
+
+	for (int i = 0; i < workers_number; ++i) {
+		distributed_work[i] = delta + (i < left ? 1 : 0);
+	}
+
+	return distributed_work;
 }
