@@ -4,7 +4,7 @@
 #include "mask.h"
 
 #define MAX_NUMBER_LENGTH 4
-#define MAX_MASK_NUMBER 8
+#define MAX_MASK_NUMBER 8 // @TODO
 
 
 /*

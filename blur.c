@@ -30,7 +30,16 @@ void blur_host(int world_size, Options options) {
 
 	int *distributed_height = balance_work(image.height, world_size);
 
-	send_parameters_to_worker(&image, masks_number, masks, options.n, world_size, distributed_height);
+	send_parameters_to_workers(&image, masks_number, masks, options.n, world_size, distributed_height);
+
+	int *recvcounts = malloc(sizeof(int) * world_size);
+	int *displs = malloc(sizeof(int) * world_size);
+	int offset = 0;
+	for (int i = 0; i < world_size; ++i) {
+		displs[i] = offset;
+		recvcounts[i] = distributed_height[i] * image.width;
+		offset += recvcounts[i];
+	}
 
 	Image cut_image;
 	cut_image.width = image.width;
@@ -41,7 +50,9 @@ void blur_host(int world_size, Options options) {
 
 	unsigned char *out_image = malloc(sizeof(unsigned char) * image.width * image.height);
 
-	MPI_Gather(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR, out_image, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+	MPI_Gatherv(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR,
+				out_image, recvcounts, displs, MPI_UNSIGNED_CHAR,
+				0, MPI_COMM_WORLD);
 
 	FILE *out_file = fopen(options.output_image_filename, "wr");
 	fwrite(out_image, 1, image.width * image.height, out_file);
@@ -61,15 +72,15 @@ void blur_host(int world_size, Options options) {
  * world_size - the number of processes
  * distributed_height - @TODO
  */
-void send_parameters_to_worker(Image *image, int masks_number, Mask* masks, int n, int world_size, int *distributed_height) {
-	MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	
+void send_parameters_to_workers(Image *image, int masks_number, Mask* masks, int n, int world_size, int *distributed_height) {	
 	MPI_Bcast(&image->width, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	MPI_Bcast(&image->height, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	MPI_Bcast(image->data, image->width * image->height, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
 	MPI_Bcast(&masks_number, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	MPI_Bcast(masks, masks_number, MPI_MASK, 0, MPI_COMM_WORLD);
+
+	MPI_Bcast(&n, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
 	int current = distributed_height[0];
 	for (int i = 1; i < world_size; ++i) {
@@ -93,7 +104,6 @@ void send_parameters_to_worker(Image *image, int masks_number, Mask* masks, int 
  * end - the row which the cut image ends at
  */
 void receive_parameters_from_host(Image *image, int *masks_number, Mask **masks, int *n, int *start, int *end) {
-	MPI_Bcast(n, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	MPI_Bcast(&image->width, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	MPI_Bcast(&image->height, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
@@ -101,9 +111,10 @@ void receive_parameters_from_host(Image *image, int *masks_number, Mask **masks,
 	MPI_Bcast(image->data, image->width * image->height, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
 	MPI_Bcast(masks_number, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
 	*masks = malloc(sizeof(Mask) * (*masks_number));
 	MPI_Bcast(*masks, *masks_number, MPI_MASK, 0, MPI_COMM_WORLD);
+
+	MPI_Bcast(n, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
 	MPI_Recv(start, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 	MPI_Recv(end, 1, MPI_INT, 0, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
@@ -128,7 +139,9 @@ void blur_worker() {
 	cut_image.data = malloc(sizeof(unsigned char) * cut_image.width * cut_image.height);
 
 	blur(&image, &cut_image, masks_number, masks, n, start, end);
-	MPI_Gather(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR, NULL, 0, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+	MPI_Gatherv(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR,
+				NULL, NULL, NULL,
+				MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 }
 
 
@@ -237,7 +250,7 @@ int* balance_work(int work, int workers_number) {
 	int left = work % workers_number;
 
 	for (int i = 0; i < workers_number; ++i) {
-		distributed_work[i] = delta + (i < left ? 1 : 0);
+		distributed_work[i] = delta + (i < left ? 1 : 0); // @TODO
 	}
 
 	return distributed_work;

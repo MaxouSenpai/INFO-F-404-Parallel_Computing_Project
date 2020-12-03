@@ -32,7 +32,7 @@ void create_mpi_mask_type();
 int* balance_work(int work, int workers_number);
 
 
-void send_parameters_to_worker(Image *image, int masks_number, Mask* masks, int n, int world_size, int *distributed_height);
+void send_parameters_to_workers(Image *image, int masks_number, Mask* masks, int n, int world_size, int *distributed_height);
 
 
 #endif
