@@ -1,10 +1,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "mask.h"
-
-#define MAX_NUMBER_LENGTH 4
-#define MAX_MASK_NUMBER 8 // @TODO
 
 
 /*
@@ -13,10 +11,13 @@
  *
  * masks_file - the file containing the masks
  * mask - the mask struct to update
+ * max_width - the maximum value of j
+ * max_height - the maximum value of i
  * returns 0 if no error was detected else 1
  */
-int get_next_mask(FILE *masks_file, Mask *mask) {
-	char temp_string[MAX_NUMBER_LENGTH + 1]; // null at the end of the buffer
+int get_next_mask(FILE *masks_file, Mask *mask, int max_width, int max_height) {
+	int max_number_lenght = get_max_number_lenght(max_width < max_height ? max_height:max_width); // Max
+	char *temp_string = malloc(sizeof(char) * max_number_lenght + 1); // +1 because null must be at the end of the buffer
 	char temp_char;
 	int i;
 
@@ -32,15 +33,15 @@ int get_next_mask(FILE *masks_file, Mask *mask) {
 		if (offset == 0) {
 			return 1;
 		}
-		temp_string[offset] = 0;
+		temp_string[offset] = 0; // Null at the end
 		
 		int temp_int = atoi(temp_string);
 
 		switch(i) {
-			case 0: mask->start_i = temp_int; break;
-			case 1: mask->start_j = temp_int; break;
-			case 2: mask->end_i = temp_int; break;
-			case 3: mask->end_j = temp_int; break;
+			case 0: if (temp_int < 0) return 1; mask->start_i = temp_int; break;
+			case 1: if (temp_int < 0) return 1; mask->start_j = temp_int; break;
+			case 2: if (temp_int > max_height) return 1; mask->end_i = temp_int; break;
+			case 3: if (temp_int > max_width) return 1; mask->end_j = temp_int; break;
 		}
 	}
 
@@ -58,15 +59,18 @@ int get_next_mask(FILE *masks_file, Mask *mask) {
  *
  * masks_file_path - the path of the file containing the masks
  * mask_number - the number of masks(to update)
+ * max_width - the maximum value of j
+ * max_height - the maximum value of i
  * returns an array containing all the masks
  */
-Mask* get_all_masks(char *masks_file_path, int *masks_number) {
-	Mask *masks = malloc(sizeof(Mask) * MAX_MASK_NUMBER);
+Mask* get_all_masks(char *masks_file_path, int *masks_number, int max_width, int max_height) {
+	Mask *masks = malloc(sizeof(Mask));
 	*masks_number = 0;
 	FILE *masks_file = fopen(masks_file_path, "r");
 
-	while (get_next_mask(masks_file, &masks[*masks_number]) == 0) {
+	while (get_next_mask(masks_file, &masks[*masks_number], max_width, max_height) == 0) {
 		*masks_number = *masks_number + 1;
+		masks = realloc(masks, sizeof(Mask) * (*masks_number + 1));
 	}
 
 	fclose(masks_file);
@@ -79,6 +83,8 @@ Mask* get_all_masks(char *masks_file_path, int *masks_number) {
  *
  * mask_number - the number of masks
  * masks - the list containing the masks
+ * i - the row of the pixel
+ * j - the column of the pixel
  * returns true if the specified pixel is in at least one of the specified masks else false
  */
 bool is_pixel_in_masks(int masks_number, Mask* masks, int i, int j) {
@@ -90,3 +96,16 @@ bool is_pixel_in_masks(int masks_number, Mask* masks, int i, int j) {
 	return false;
 }
 
+
+/*
+ * This function determines the number of digits needed to represent the specified integer in base 10
+ *
+ * i - the integer
+ * returns the number of digits needed to represent the specified integer in base 10
+ */
+int get_max_number_lenght(int i) {
+	if (i < 10) {
+		return 1;
+	}
+	return 1 + get_max_number_lenght(i/10);
+}

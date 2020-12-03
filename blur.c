@@ -7,8 +7,6 @@
 #include "mask.h"
 #include "options.h"
 
-// https://rawpixels.net/
-
 
 /*
  * This function executes the code of the host.
@@ -21,7 +19,7 @@ void blur_host(int world_size, Options options) {
 	load_raw_image(options.image_filename, options.width, options.height, &image);
 
 	int masks_number;
-	Mask* masks = get_all_masks(options.masks_filename, &masks_number);
+	Mask* masks = get_all_masks(options.masks_filename, &masks_number, options.width, options.height);
 	
 	printf("Masks contained in the file %s :\n", options.masks_filename);
 	for (int i = 0; i < masks_number; ++i) {
@@ -70,7 +68,7 @@ void blur_host(int world_size, Options options) {
  * masks - the masks
  * n - the n (neighbourhood) value for the blurring algorithm
  * world_size - the number of processes
- * distributed_height - @TODO
+ * distributed_height - the array containing the number of rows each process has to work on
  */
 void send_parameters_to_workers(Image *image, int masks_number, Mask* masks, int n, int world_size, int *distributed_height) {	
 	MPI_Bcast(&image->width, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -250,7 +248,7 @@ int* balance_work(int work, int workers_number) {
 	int left = work % workers_number;
 
 	for (int i = 0; i < workers_number; ++i) {
-		distributed_work[i] = delta + (i < left ? 1 : 0); // @TODO
+		distributed_work[i] = delta + (i < left ? 1 : 0); // To split the rest
 	}
 
 	return distributed_work;

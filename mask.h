@@ -11,13 +11,16 @@ typedef struct {
 } Mask;
 
 
-int get_next_mask(FILE *masks_file, Mask*);
+int get_next_mask(FILE *masks_file, Mask*, int max_width, int max_height);
 
 
-Mask* get_all_masks(char *masks_file_path, int *masks_number);
+Mask* get_all_masks(char *masks_file_path, int *masks_number, int max_width, int max_height);
 
 
 bool is_pixel_in_masks(int masks_number, Mask* masks, int i, int j);
+
+
+int get_max_number_lenght(int max);
 
 
 #endif
