@@ -16,15 +16,10 @@
  */
 void blur_host(int world_size, Options options) {
 	Image image;
-	load_raw_image(options.image_filename, options.width, options.height, &image);
+	load_raw_image(&image, options.image_filename, options.width, options.height);
 
-	int masks_number;
-	Mask* masks = get_all_masks(options.masks_filename, &masks_number, options.width, options.height);
-	
-	printf("Masks contained in the file %s :\n", options.masks_filename);
-	for (int i = 0; i < masks_number; ++i) {
-		printf("\tMask %i : %i, %i, %i, %i\n", i, masks[i].start_i, masks[i].start_j, masks[i].end_i, masks[i].end_j);
-	}
+	Mask* masks;
+	int masks_number = get_all_masks(&masks, options.masks_filename, options.width, options.height);
 
 	int *distributed_height = balance_work(image.height, world_size);
 
@@ -39,6 +34,7 @@ void blur_host(int world_size, Options options) {
 		offset += recvcounts[i];
 	}
 
+
 	Image cut_image;
 	cut_image.width = image.width;
 	cut_image.height = distributed_height[0];
@@ -46,15 +42,25 @@ void blur_host(int world_size, Options options) {
 
 	blur(&image, &cut_image, masks_number, masks, options.n, 0, distributed_height[0]);
 
+
 	unsigned char *out_image = malloc(sizeof(unsigned char) * image.width * image.height);
 
 	MPI_Gatherv(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR,
 				out_image, recvcounts, displs, MPI_UNSIGNED_CHAR,
 				0, MPI_COMM_WORLD);
 
-	FILE *out_file = fopen(options.output_image_filename, "wr");
+
+	FILE *out_file = fopen(options.output_image_filename, "wb");
 	fwrite(out_image, 1, image.width * image.height, out_file);
 	fclose(out_file);
+
+	free(image.data);
+	free(masks);
+	free(distributed_height);
+	free(recvcounts);
+	free(displs);
+	free(cut_image.data);
+	free(out_image);
 }
 
 
@@ -140,6 +146,10 @@ void blur_worker() {
 	MPI_Gatherv(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR,
 				NULL, NULL, NULL,
 				MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
+
+	free(image.data);
+	free(masks);
+	free(cut_image.data);
 }
 
 

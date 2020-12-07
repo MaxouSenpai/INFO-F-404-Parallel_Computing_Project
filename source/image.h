@@ -9,7 +9,7 @@ typedef struct {
 } Image;
 
 
-void load_raw_image(char *filepath, int width, int height, Image *image);
+void load_raw_image(Image *image, char *filepath, int width, int height);
 
 
 unsigned char get_pixel(Image *image, int i, int j);

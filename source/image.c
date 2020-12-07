@@ -12,7 +12,7 @@
  * height - the height of the image
  * image - the image struct to update
  */
-void load_raw_image(char *filepath, int width, int height, Image *image) {
+void load_raw_image(Image *image, char *filepath, int width, int height) {
 
 	unsigned char *data = malloc(width * height * sizeof(unsigned char));
 
@@ -35,8 +35,7 @@ void load_raw_image(char *filepath, int width, int height, Image *image) {
  * j - the column of the pixel
  * returns the value of the pixel
  */
-unsigned char get_pixel(Image* image, int i, int j) {
-	// data[i][j] == *(data + i * c + j)
+unsigned char get_pixel(Image *image, int i, int j) {
 	return *(image->data + i * image->width + j);
 }
 
@@ -49,7 +48,7 @@ unsigned char get_pixel(Image* image, int i, int j) {
  * j - the column of the pixel
  * value - the value of the pixel
  */
-void set_pixel(Image* image, int i, int j, unsigned char value) {
+void set_pixel(Image *image, int i, int j, unsigned char value) {
 	*(image->data + i * image->width + j) = value;
 }
 
