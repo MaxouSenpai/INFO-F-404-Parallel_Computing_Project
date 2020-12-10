@@ -12,15 +12,15 @@ FLAGS = -I$(INC_DIR) -L$(LIB_DIR)
 build: object/image.o object/mask.o object/options.o
 	gcc -g -o blur source/blur.c object/image.o object/mask.o object/options.o $(FLAGS) -lmpi -Wall
 
-object/image.o:
+object/image.o: source/image.c source/image.h
 	mkdir object -p
 	gcc -c source/image.c -o object/image.o -Wall
 
-object/mask.o:
+object/mask.o: source/mask.c source/mask.h
 	mkdir object -p
 	gcc -c source/mask.c -o object/mask.o -Wall
 
-object/options.o:
+object/options.o: source/options.c source/options.h
 	mkdir object -p
 	gcc -c source/options.c -o object/options.o -Wall
 
@@ -38,3 +38,8 @@ test2:
 test3:
 	export PATH=$(PATH):$(BIN_DIR) && \
 	mpirun -n 4 blur -i example/police3.raw -m example/mask3 -n 10 -o test3.raw -d 1280 720
+
+test4:
+	export PATH=$(PATH):$(BIN_DIR) && \
+	mpirun -n 4 blur -i example/police4.raw -m example/mask4 -n 10 -o test4.raw -d 1280 720
+

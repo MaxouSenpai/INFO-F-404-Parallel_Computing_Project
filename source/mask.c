@@ -21,13 +21,23 @@ int get_all_masks(Mask **masks, char *masks_file_path, int max_width, int max_he
 	Mask current_mask = {-1,-1,-1,-1};
 	FILE *masks_file = fopen(masks_file_path, "r");
 
+	if ((*masks) == NULL) {
+		printf("Error : cannot add another mask\n");
+		return 0;
+	}
+
+	if (masks_file == NULL) {
+		printf("Error when trying to open the masks file : %s\n", masks_file_path);
+		return 0;
+	}
+
 	while(fscanf(masks_file, "%u %u %u %u", &current_mask.start_i, &current_mask.start_j, &current_mask.end_i, &current_mask.end_j) != EOF) {
 		if (0 <= current_mask.start_i && 0 <= current_mask.start_j && current_mask.end_i < max_height && current_mask.end_j < max_width &&
 				current_mask.start_i < current_mask.end_i && current_mask.start_j < current_mask.end_j) {
 			masks_number++;
 			void *temp = realloc(*masks, sizeof(Mask) * masks_number);
 			if (temp == NULL) {
-				printf("Cannot add another mask !\n");
+				printf("Error : cannot add another mask\n");
 				return masks_number - 1;
 			}
 			*masks = temp;

@@ -16,10 +16,13 @@ void load_raw_image(Image *image, char *filepath, int width, int height) {
 
 	unsigned char *data = malloc(width * height * sizeof(unsigned char));
 
-	FILE* file = fopen(filepath, "rb");
+	if (data != NULL) {
+	
+		FILE* file = fopen(filepath, "rb");
 
-	fread(data, sizeof(unsigned char), width * height, file);
-	fclose(file);
+		fread(data, sizeof(unsigned char), width * height, file);
+		fclose(file);
+	}
 
 	image->data = data;
 	image->width = width;

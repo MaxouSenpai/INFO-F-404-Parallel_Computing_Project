@@ -20,13 +20,25 @@ void blur_host(int world_size, Options options) {
 
 	Mask* masks;
 	int masks_number = get_all_masks(&masks, options.masks_filename, options.width, options.height);
+	if (masks_number == 0) {
+		handle_error("Error : there is no mask\n");
+	}
 
 	int *distributed_height = balance_work(image.height, world_size);
+
+	if (distributed_height == NULL) {
+		handle_error("Error : cannot balance work\n");
+	}
 
 	send_parameters_to_workers(&image, masks_number, masks, options.n, world_size, distributed_height);
 
 	int *recvcounts = malloc(sizeof(int) * world_size);
 	int *displs = malloc(sizeof(int) * world_size);
+
+	if (recvcounts == NULL || displs == NULL) {
+		handle_error("Error : cannot balance work\n");
+	}
+
 	int offset = 0;
 	for (int i = 0; i < world_size; ++i) {
 		displs[i] = offset;
@@ -39,11 +51,17 @@ void blur_host(int world_size, Options options) {
 	cut_image.width = image.width;
 	cut_image.height = distributed_height[0];
 	cut_image.data = malloc(sizeof(unsigned char) * cut_image.width * cut_image.height);
+	if (cut_image.data == NULL)	{
+		handle_error("Error : cannot store the cut image\n");
+	}
 
 	blur(&image, &cut_image, masks_number, masks, options.n, 0, distributed_height[0]);
 
 
 	unsigned char *out_image = malloc(sizeof(unsigned char) * image.width * image.height);
+	if (out_image == NULL) {
+		handle_error("Error : cannot store the result image\n");
+	}
 
 	MPI_Gatherv(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR,
 				out_image, recvcounts, displs, MPI_UNSIGNED_CHAR,
@@ -51,6 +69,9 @@ void blur_host(int world_size, Options options) {
 
 
 	FILE *out_file = fopen(options.output_image_filename, "wb");
+	if (out_file == NULL) {
+		handle_error("Error : cannot create/override the output file\n");
+	}
 	fwrite(out_image, 1, image.width * image.height, out_file);
 	fclose(out_file);
 
@@ -94,6 +115,18 @@ void send_parameters_to_workers(Image *image, int masks_number, Mask* masks, int
 	}
 }
 
+/*
+ * This function terminates all the process and prints the specified error message.
+ *
+ * message : the error message
+ */
+void handle_error(char *message) {
+	printf("%s\n", message);
+	MPI_Abort(MPI_COMM_WORLD, 1);
+	MPI_Finalize();
+	exit(1);
+}
+
 
 /*
  * This function receives the parameters from the host and
@@ -111,11 +144,17 @@ void receive_parameters_from_host(Image *image, int *masks_number, Mask **masks,
 	MPI_Bcast(&image->width, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	MPI_Bcast(&image->height, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-	image->data = malloc(image->width * image->height * sizeof(unsigned char));	
+	image->data = malloc(image->width * image->height * sizeof(unsigned char));
+	if (image->data == NULL) {
+		handle_error("Error : cannot store the image\n");
+	}
 	MPI_Bcast(image->data, image->width * image->height, MPI_UNSIGNED_CHAR, 0, MPI_COMM_WORLD);
 
 	MPI_Bcast(masks_number, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	*masks = malloc(sizeof(Mask) * (*masks_number));
+	if (masks == NULL) {
+		handle_error("Error : cannot store the masks\n");
+	}
 	MPI_Bcast(*masks, *masks_number, MPI_MASK, 0, MPI_COMM_WORLD);
 
 	MPI_Bcast(n, 1, MPI_INT, 0, MPI_COMM_WORLD);
@@ -141,6 +180,9 @@ void blur_worker() {
 	cut_image.width = image.width;
 	cut_image.height = end - start;
 	cut_image.data = malloc(sizeof(unsigned char) * cut_image.width * cut_image.height);
+	if (cut_image.data == NULL) {
+		handle_error("Error : cannot store the cut image\n");
+	}
 
 	blur(&image, &cut_image, masks_number, masks, n, start, end);
 	MPI_Gatherv(cut_image.data, cut_image.width * cut_image.height, MPI_UNSIGNED_CHAR,
@@ -195,7 +237,9 @@ void blur(Image *base_image, Image *cut_image, int masks_number, Mask *masks, in
 void blur_split(int rank, int world_size, int argc, char **argv) {
 	if (rank == 0) {
 		Options options;
-		parse_arguments(argc, argv, &options);
+		if (parse_arguments(argc, argv, &options) != 0) {
+			handle_error("Error : Invalid or missing argument(s)\n");
+		}
 
 		blur_host(world_size, options);
 	}
@@ -257,8 +301,10 @@ int* balance_work(int work, int workers_number) {
 	int delta = work / workers_number;
 	int left = work % workers_number;
 
-	for (int i = 0; i < workers_number; ++i) {
-		distributed_work[i] = delta + (i < left ? 1 : 0); // To split the rest
+	if (distributed_work != NULL) {
+		for (int i = 0; i < workers_number; ++i) {
+			distributed_work[i] = delta + (i < left ? 1 : 0); // To split the rest
+		}
 	}
 
 	return distributed_work;

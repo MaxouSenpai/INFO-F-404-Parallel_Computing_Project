@@ -35,4 +35,7 @@ int* balance_work(int work, int workers_number);
 void send_parameters_to_workers(Image *image, int masks_number, Mask* masks, int n, int world_size, int *distributed_height);
 
 
+void handle_error(char *message);
+
+
 #endif
